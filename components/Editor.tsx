@@ -4,10 +4,11 @@ import StarterKit from '@tiptap/starter-kit';
 import Placeholder from '@tiptap/extension-placeholder';
 import TaskList from '@tiptap/extension-task-list';
 import TaskItem from '@tiptap/extension-task-item';
+import { Terminal as TerminalExtension } from '../extensions/Terminal';
 import { 
   Bold, Italic, Strikethrough, Code, List, ListOrdered, 
   Quote, Heading1, Heading2, Heading3, CheckSquare, 
-  Undo, Redo, Minus
+  Undo, Redo, Minus, Terminal as TerminalIcon
 } from 'lucide-react';
 
 interface EditorProps {
@@ -136,6 +137,11 @@ const EditorToolbar: React.FC<{ editor: any }> = ({ editor }) => {
           icon={Minus} 
           title="Horizontal Rule" 
         />
+        <ToolbarButton 
+          onClick={() => editor.chain().focus().setTerminal().run()} 
+          icon={TerminalIcon} 
+          title="Insert Terminal Block" 
+        />
        </div>
     </div>
   );
@@ -152,6 +158,7 @@ const Editor: React.FC<EditorProps> = ({ content, onChange, editable = true }) =
       TaskItem.configure({
         nested: true,
       }),
+      TerminalExtension,
     ],
     content: content,
     editable: editable,

@@ -209,6 +209,42 @@
       .priority-medium { background-color: #eab308; }
       .priority-low { background-color: #3b82f6; }
       .priority-none { background-color: transparent; }
+
+      /* Terminal Block Styles */
+      .terminal-content {
+        color: #d4d4d4;
+      }
+      .terminal-content [data-node-view-content] {
+        outline: none;
+        min-height: 100px;
+        display: block;
+        width: 100%;
+      }
+      .terminal-content [data-node-view-content]:focus {
+        outline: none;
+      }
+      .terminal-node-wrapper {
+        position: relative;
+      }
+      .content-editable-area {
+        white-space: pre-wrap !important;
+        word-break: break-all;
+      }
+
+      /* CodeMirror Terminal Styles */
+      .terminal-node-wrapper .cm-editor {
+        outline: none !important;
+      }
+      .terminal-node-wrapper .cm-editor.cm-focused {
+        outline: none !important;
+      }
+      .terminal-node-wrapper .cm-content {
+        padding: 8px !important;
+        min-height: 120px;
+      }
+      .terminal-node-wrapper .cm-scroller {
+        overflow: auto;
+      }
     </style>
   <script type="importmap">
 {
