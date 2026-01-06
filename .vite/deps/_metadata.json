@@ -1,0 +1,88 @@
+{
+  "hash": "2733697c",
+  "configHash": "002ebddc",
+  "lockfileHash": "2e85946d",
+  "browserHash": "16c18f3d",
+  "optimized": {
+    "react/jsx-dev-runtime": {
+      "src": "../../node_modules/react/jsx-dev-runtime.js",
+      "file": "react_jsx-dev-runtime.js",
+      "fileHash": "a78d2d16",
+      "needsInterop": true
+    },
+    "react": {
+      "src": "../../node_modules/react/index.js",
+      "file": "react.js",
+      "fileHash": "19c485f1",
+      "needsInterop": true
+    },
+    "react-dom/client": {
+      "src": "../../node_modules/react-dom/client.js",
+      "file": "react-dom_client.js",
+      "fileHash": "b4e4273a",
+      "needsInterop": true
+    },
+    "react-router-dom": {
+      "src": "../../node_modules/react-router-dom/dist/index.js",
+      "file": "react-router-dom.js",
+      "fileHash": "db4d54fc",
+      "needsInterop": false
+    },
+    "lucide-react": {
+      "src": "../../node_modules/lucide-react/dist/esm/lucide-react.js",
+      "file": "lucide-react.js",
+      "fileHash": "111fe856",
+      "needsInterop": false
+    },
+    "date-fns": {
+      "src": "../../node_modules/date-fns/esm/index.js",
+      "file": "date-fns.js",
+      "fileHash": "68c05f60",
+      "needsInterop": false
+    },
+    "@tiptap/react": {
+      "src": "../../node_modules/@tiptap/react/dist/index.js",
+      "file": "@tiptap_react.js",
+      "fileHash": "ffc8e3de",
+      "needsInterop": false
+    },
+    "@tiptap/starter-kit": {
+      "src": "../../node_modules/@tiptap/starter-kit/dist/index.js",
+      "file": "@tiptap_starter-kit.js",
+      "fileHash": "28ddaeca",
+      "needsInterop": false
+    },
+    "@tiptap/extension-placeholder": {
+      "src": "../../node_modules/@tiptap/extension-placeholder/dist/index.js",
+      "file": "@tiptap_extension-placeholder.js",
+      "fileHash": "8eeafd0b",
+      "needsInterop": false
+    },
+    "@tiptap/extension-task-list": {
+      "src": "../../node_modules/@tiptap/extension-task-list/dist/index.js",
+      "file": "@tiptap_extension-task-list.js",
+      "fileHash": "76de0990",
+      "needsInterop": false
+    },
+    "@tiptap/extension-task-item": {
+      "src": "../../node_modules/@tiptap/extension-task-item/dist/index.js",
+      "file": "@tiptap_extension-task-item.js",
+      "fileHash": "9edc0b18",
+      "needsInterop": false
+    }
+  },
+  "chunks": {
+    "chunk-TNTPHDQH": {
+      "file": "chunk-TNTPHDQH.js"
+    },
+    "chunk-32E4H3EV": {
+      "file": "chunk-32E4H3EV.js"
+    },
+    "chunk-557KCOH3": {
+      "file": "chunk-557KCOH3.js"
+    },
+    "chunk-G3PMV62Z": {
+      "file": "chunk-G3PMV62Z.js"
+    }
+  }
+}
