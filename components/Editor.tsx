@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { useEditor, EditorContent, BubbleMenu, FloatingMenu } from '@tiptap/react';
+import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Placeholder from '@tiptap/extension-placeholder';
 import TaskList from '@tiptap/extension-task-list';
@@ -177,7 +177,7 @@ const Editor: React.FC<EditorProps> = ({ content, onChange, editable = true }) =
       
       // Only update if content is actually different
       if (currentContent !== newContent) {
-         editor.commands.setContent(content, false);
+         editor.commands.setContent(content);
       }
     }
   }, [content, editor]);
@@ -185,9 +185,6 @@ const Editor: React.FC<EditorProps> = ({ content, onChange, editable = true }) =
   if (!editor) {
     return null;
   }
-
-  const menuButtonClass = (isActive: boolean) => 
-    `p-2 hover:bg-muted transition-colors ${isActive ? 'text-accent-fg bg-accent' : 'text-muted-fg'}`;
 
   // This handler ensures that clicking anywhere in the container focuses the editor
   // if it's not already focused. We use a MouseEvent to ignore clicks that originated
@@ -210,44 +207,6 @@ const Editor: React.FC<EditorProps> = ({ content, onChange, editable = true }) =
       onClick={handleContainerClick}
     >
       {editable && <EditorToolbar editor={editor} />}
-
-      {/* Bubble Menu for quick text formatting */}
-      {editable && (
-        <BubbleMenu 
-          editor={editor} 
-          tippyOptions={{ duration: 100 }}
-          className="bg-bg shadow-xl border border-border rounded-sm overflow-hidden flex divide-x divide-border"
-        >
-          <button onClick={() => editor.chain().focus().toggleBold().run()} className={menuButtonClass(editor.isActive('bold'))}>
-            <Bold size={14} />
-          </button>
-          <button onClick={() => editor.chain().focus().toggleItalic().run()} className={menuButtonClass(editor.isActive('italic'))}>
-            <Italic size={14} />
-          </button>
-          <button onClick={() => editor.chain().focus().toggleStrike().run()} className={menuButtonClass(editor.isActive('strike'))}>
-            <Strikethrough size={14} />
-          </button>
-        </BubbleMenu>
-      )}
-
-      {/* Floating Menu for quick block insertions */}
-      {editable && (
-        <FloatingMenu 
-          editor={editor} 
-          tippyOptions={{ duration: 100 }}
-          className="bg-bg shadow-xl border border-border rounded-sm overflow-hidden flex divide-x divide-border"
-        >
-          <button onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()} className={menuButtonClass(editor.isActive('heading', { level: 1 }))}>
-            <Heading1 size={14} />
-          </button>
-          <button onClick={() => editor.chain().focus().toggleBulletList().run()} className={menuButtonClass(editor.isActive('bulletList'))}>
-            <List size={14} />
-          </button>
-          <button onClick={() => editor.chain().focus().toggleTaskList().run()} className={menuButtonClass(editor.isActive('taskList'))}>
-            <CheckSquare size={14} />
-          </button>
-        </FloatingMenu>
-      )}
 
       <EditorContent editor={editor} className="flex-1 min-h-full" />
     </div>

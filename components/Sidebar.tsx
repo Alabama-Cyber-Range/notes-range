@@ -1,5 +1,5 @@
-import React from 'react';
-import { Plus, Search, Clock, Settings, Folder, Home } from 'lucide-react';
+import React, { useState } from 'react';
+import { Plus, Search, Clock, Settings, Folder, Home, ChevronRight, ChevronDown, ChevronUp } from 'lucide-react';
 import { Note } from '../types';
 import { formatDistanceToNow } from 'date-fns';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -19,6 +19,116 @@ interface SidebarProps {
   className?: string;
 }
 
+// Tree structure interface
+interface FolderNode {
+  name: string;
+  fullPath: string;
+  children: FolderNode[];
+}
+
+// Helper to build tree from flat paths
+const buildFolderTree = (paths: string[]): FolderNode[] => {
+  const root: FolderNode[] = [];
+  const map: Record<string, FolderNode> = {};
+
+  // Sort paths to ensure parents are processed first if possible, 
+  // though simple string split logic below handles it regardless.
+  const sortedPaths = [...paths].sort();
+
+  sortedPaths.forEach(path => {
+    const parts = path.split('/');
+    // We only care about the top level for the root array
+    // But we need to construct the chain
+    let currentLevel = root;
+    let currentPath = '';
+
+    parts.forEach((part, index) => {
+      currentPath = currentPath ? `${currentPath}/${part}` : part;
+      
+      // Check if we already have this node at this level
+      let existingNode = currentLevel.find(n => n.name === part);
+
+      if (!existingNode) {
+        existingNode = {
+          name: part,
+          fullPath: currentPath,
+          children: []
+        };
+        currentLevel.push(existingNode);
+      }
+
+      currentLevel = existingNode.children;
+    });
+  });
+
+  return root;
+};
+
+// Recursive Folder Component
+const FolderItem: React.FC<{
+  node: FolderNode;
+  activeFilter: string | null;
+  onSelect: (path: string) => void;
+  depth?: number;
+}> = ({ node, activeFilter, onSelect, depth = 0 }) => {
+  // Check if this folder or any of its children is active to auto-expand
+  const isActive = activeFilter === node.fullPath;
+  const isChildActive = activeFilter?.startsWith(node.fullPath + '/');
+  
+  const [isExpanded, setIsExpanded] = useState(isChildActive);
+  
+  // React to external filter changes to auto-expand
+  React.useEffect(() => {
+    if (isChildActive && !isExpanded) {
+      setIsExpanded(true);
+    }
+  }, [isChildActive]);
+
+  const hasChildren = node.children.length > 0;
+
+  return (
+    <div>
+      <div 
+        className={`w-full flex items-center gap-2 px-3 py-1.5 text-sm rounded-sm transition-colors cursor-pointer select-none group
+          ${isActive ? 'bg-accent text-accent-fg font-bold' : 'text-muted-fg hover:bg-muted hover:text-fg'}
+        `}
+        style={{ paddingLeft: `${12 + (depth * 12)}px` }}
+        onClick={() => onSelect(node.fullPath)}
+      >
+         {hasChildren ? (
+           <button 
+             onClick={(e) => {
+               e.stopPropagation();
+               setIsExpanded(!isExpanded);
+             }}
+             className="p-0.5 hover:bg-fg/10 rounded"
+           >
+             {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+           </button>
+         ) : (
+           <Folder size={14} />
+         )}
+         
+         <span className="truncate flex-1">{node.name}</span>
+      </div>
+      
+      {hasChildren && isExpanded && (
+        <div className="border-l border-border ml-5 my-1">
+          {node.children.map(child => (
+            <FolderItem 
+              key={child.fullPath} 
+              node={child} 
+              activeFilter={activeFilter} 
+              onSelect={onSelect} 
+              depth={depth + 1}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
 const Sidebar: React.FC<SidebarProps> = ({ 
   notes, 
   folders,
@@ -35,6 +145,7 @@ const Sidebar: React.FC<SidebarProps> = ({
 }) => {
   const navigate = useNavigate();
   const location = useLocation();
+  const folderTree = buildFolderTree(folders);
 
   const handleGoHome = () => {
     onSelectFilter(null);
@@ -48,8 +159,8 @@ const Sidebar: React.FC<SidebarProps> = ({
     navigate('/');
   };
 
-  const handleFolderClick = (folder: string) => {
-    onSelectFilter(folder);
+  const handleFolderClick = (path: string) => {
+    onSelectFilter(path);
     onSearch('');
     navigate('/');
   };
@@ -95,7 +206,7 @@ const Sidebar: React.FC<SidebarProps> = ({
       </div>
 
       {/* Navigation Sections */}
-      <div className="flex-1 overflow-y-auto px-2 space-y-6">
+      <div className="flex-1 overflow-y-auto px-2 space-y-6 custom-scrollbar">
         
         {/* Quick Links */}
         <div className="space-y-0.5">
@@ -133,7 +244,7 @@ const Sidebar: React.FC<SidebarProps> = ({
           </button>
         </div>
 
-        {/* Folders */}
+        {/* Folders Accordion */}
         <div className="space-y-0.5">
           <div className="px-3 py-1 text-xs font-bold text-muted-fg uppercase tracking-widest flex justify-between items-center group">
             <span>Folders</span>
@@ -148,26 +259,22 @@ const Sidebar: React.FC<SidebarProps> = ({
                <Plus size={14} />
             </button>
           </div>
-          {folders.map(folder => (
-            <button 
-              key={folder} 
-              onClick={() => handleFolderClick(folder)}
-              className={`w-full flex items-center space-x-2 px-3 py-1.5 text-sm rounded-sm transition-colors ${
-                activeFilter === folder 
-                  ? 'bg-accent text-accent-fg font-bold' 
-                  : 'text-muted-fg hover:bg-muted hover:text-fg'
-              }`}
-            >
-               <Folder size={15} />
-               <span>{folder}</span>
-            </button>
-          ))}
+          <div className="space-y-0.5">
+             {folderTree.map(node => (
+               <FolderItem 
+                 key={node.fullPath} 
+                 node={node} 
+                 activeFilter={activeFilter} 
+                 onSelect={handleFolderClick} 
+               />
+             ))}
+          </div>
         </div>
 
         {/* Filtered Notes List */}
         <div className="space-y-0.5 pt-4 border-t border-border">
            <div className="px-3 py-1 text-xs font-bold text-muted-fg uppercase tracking-widest">
-            {searchQuery ? `Search: "${searchQuery}"` : (activeFilter === 'recent' ? 'Recent Notes' : (activeFilter || 'All Notes'))}
+            {searchQuery ? `Search: "${searchQuery}"` : (activeFilter === 'recent' ? 'Recent Notes' : (activeFilter ? activeFilter.split('/').pop() : 'All Notes'))}
           </div>
           
           {sortedNotes.length === 0 && (
@@ -205,7 +312,6 @@ const Sidebar: React.FC<SidebarProps> = ({
       <div className="p-2 border-t border-border text-[10px] text-muted-fg flex justify-between">
          <span>Ln 1, Col 1</span>
          <span>UTF-8</span>
-         <span>Windows (CRLF)</span>
       </div>
     </div>
   );

@@ -1,19 +1,25 @@
 import React from 'react';
 import { Note } from '../types';
 import { formatDistanceToNow, isToday, isPast, isSameDay, parseISO } from 'date-fns';
-import { FileText, Clock, Folder, Search, Calendar, AlertCircle } from 'lucide-react';
+import { FileText, Clock, Folder, Search, Calendar, AlertCircle, Plus, CornerDownRight } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
 interface DashboardProps {
   notes: Note[];
+  folders?: string[];
   onCreateNote: () => void;
+  onCreateSubfolder?: (parentPath: string) => void;
+  onSelectSubfolder?: (path: string) => void;
   userName?: string;
   filterName?: string;
 }
 
 const Dashboard: React.FC<DashboardProps> = ({ 
   notes, 
-  onCreateNote, 
+  folders = [],
+  onCreateNote,
+  onCreateSubfolder, 
+  onSelectSubfolder,
   userName = "Friend", 
   filterName 
 }) => {
@@ -35,11 +41,26 @@ const Dashboard: React.FC<DashboardProps> = ({
     return isToday(due) || (isPast(due) && !isSameDay(due, today));
   }).sort((a, b) => new Date(a.reminderAt!).getTime() - new Date(b.reminderAt!).getTime());
 
-  const isFiltered = filterName && filterName !== 'All Notes';
-  const title = isFiltered ? filterName : `${greeting}, ${userName}.`;
+  const isFiltered = filterName && filterName !== 'All Notes' && !filterName.includes('Search');
+  const isSearch = filterName && filterName.includes('Search');
+  const currentFolder = isFiltered ? filterName : null;
+
+  const title = isFiltered ? filterName!.split('/').pop() : (isSearch ? filterName : `${greeting}, ${userName}.`);
   const subtitle = isFiltered 
-    ? `You have ${notes.length} note${notes.length !== 1 ? 's' : ''} in this view.` 
+    ? `Folder: ${filterName}` 
     : "Here is what you've been working on recently.";
+
+  // Find Subfolders
+  const subfolders = currentFolder 
+    ? folders.filter(f => {
+        // Must start with current folder path + '/'
+        // And must not contain more '/' after that (direct children only)
+        // actually showing deep descendants is fine, but usually UI shows direct children.
+        // Let's do direct children.
+        const prefix = currentFolder + '/';
+        return f.startsWith(prefix) && f.split('/').length === currentFolder.split('/').length + 1;
+      })
+    : [];
 
   return (
     <div className="flex-1 h-full overflow-y-auto bg-bg text-fg p-8 custom-scrollbar font-mono transition-colors duration-300">
@@ -47,23 +68,66 @@ const Dashboard: React.FC<DashboardProps> = ({
         
         {/* Header */}
         <div className="space-y-2">
+          {isFiltered && (
+            <div className="flex items-center gap-2 text-muted-fg text-sm mb-2">
+              <Folder size={14} />
+              <span>{filterName?.split('/').slice(0, -1).join(' / ') || 'Root'} /</span>
+            </div>
+          )}
           <h1 className="text-4xl font-bold tracking-tight text-fg truncate">{title}</h1>
           <p className="text-muted-fg">{subtitle}</p>
         </div>
 
         {/* Quick Actions */}
-        <div className="flex gap-4">
+        <div className="flex flex-wrap gap-4">
            <button 
              onClick={onCreateNote}
              className="px-6 py-3 bg-fg text-bg hover:opacity-90 transition-opacity font-bold text-sm flex items-center gap-2"
            >
-             <span>+ New Note</span>
+             <Plus size={16} />
+             <span>New Note</span>
            </button>
+           
+           {isFiltered && onCreateSubfolder && (
+             <button 
+               onClick={() => onCreateSubfolder(currentFolder!)}
+               className="px-6 py-3 border border-border hover:bg-muted transition-colors font-bold text-sm flex items-center gap-2"
+             >
+               <Folder size={16} />
+               <span>New Subfolder</span>
+             </button>
+           )}
+
            <div className="px-6 py-3 border border-border text-muted-fg text-sm flex items-center gap-2">
              <FileText size={16} />
              <span>{notes.length} Note{notes.length !== 1 ? 's' : ''}</span>
            </div>
         </div>
+        
+        {/* Subfolders Grid */}
+        {subfolders.length > 0 && (
+          <div className="space-y-4">
+             <h2 className="text-xl font-bold flex items-center gap-2 text-fg border-b border-border pb-2">
+                <CornerDownRight size={20} />
+                <span>Subfolders</span>
+             </h2>
+             <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
+                {subfolders.map(sub => {
+                  const subName = sub.split('/').pop();
+                  return (
+                    <button
+                      key={sub}
+                      onClick={() => onSelectSubfolder && onSelectSubfolder(sub)}
+                      className="bg-muted hover:bg-accent hover:text-accent-fg p-4 rounded-sm border border-border flex flex-col items-center justify-center gap-2 cursor-pointer transition-colors"
+                    >
+                       <Folder size={32} />
+                       <span className="font-bold text-sm truncate w-full text-center">{subName}</span>
+                    </button>
+                  )
+                })}
+             </div>
+          </div>
+        )}
 
         {/* Due Today Section */}
         {dueNotes.length > 0 && !isFiltered && (
@@ -104,7 +168,7 @@ const Dashboard: React.FC<DashboardProps> = ({
           
           {displayNotes.length === 0 ? (
             <div className="border border-dashed border-border p-12 text-center text-muted-fg">
-              <p>No notes found in this view. Create one to get started.</p>
+              <p>No notes found in this view.</p>
             </div>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -118,7 +182,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2 text-xs text-muted-fg uppercase tracking-wider">
                         <Folder size={12} />
-                        <span className="truncate max-w-[80px]">{note.folder || 'General'}</span>
+                        <span className="truncate max-w-[80px]">{note.folder?.split('/').pop() || 'General'}</span>
                       </div>
                       <div className={`priority-dot priority-${note.priority}`} title={`Priority: ${note.priority}`} />
                     </div>

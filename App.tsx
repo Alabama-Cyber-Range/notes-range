@@ -472,7 +472,7 @@ const SettingsModal: React.FC<{
           </div>
           <div className="flex justify-between items-center p-3 border border-border">
              <span className="text-fg">Version</span>
-             <span className="text-muted-fg">1.2.0</span>
+             <span className="text-muted-fg">1.3.0</span>
           </div>
         </div>
         <div className="mt-6 flex justify-end">
@@ -487,7 +487,8 @@ const CreateFolderModal: React.FC<{
   isOpen: boolean; 
   onClose: () => void;
   onCreate: (name: string) => void;
-}> = ({ isOpen, onClose, onCreate }) => {
+  parentFolder?: string | null;
+}> = ({ isOpen, onClose, onCreate, parentFolder }) => {
   const [folderName, setFolderName] = useState('');
 
   if (!isOpen) return null;
@@ -507,17 +508,22 @@ const CreateFolderModal: React.FC<{
         <div className="flex justify-between items-center mb-6">
           <h2 className="text-xl font-bold flex items-center gap-2">
             <FolderPlus size={20} />
-            New Folder
+            {parentFolder ? 'New Subfolder' : 'New Folder'}
           </h2>
           <button onClick={onClose} className="text-muted-fg hover:text-fg"><X size={20}/></button>
         </div>
+        {parentFolder && (
+          <div className="mb-4 text-xs text-muted-fg">
+            Creating inside: <span className="font-bold text-fg">{parentFolder}</span>
+          </div>
+        )}
         <form onSubmit={handleSubmit} className="space-y-4">
           <input 
             autoFocus
             type="text" 
             value={folderName}
             onChange={(e) => setFolderName(e.target.value)}
-            placeholder="Folder Name..."
+            placeholder="Name..."
             className="w-full bg-muted p-2 border border-border text-fg focus:ring-1 focus:ring-fg outline-none"
           />
           <div className="flex justify-end gap-2">
@@ -545,6 +551,7 @@ const AppContent: React.FC = () => {
   // Modals
   const [isSettingsOpen, setSettingsOpen] = useState(false);
   const [isFolderModalOpen, setFolderModalOpen] = useState(false);
+  const [parentFolderForNewFolder, setParentFolderForNewFolder] = useState<string | null>(null);
   
   const [theme, setTheme] = useState<'dark' | 'light'>('dark');
   const navigate = useNavigate();
@@ -624,6 +631,13 @@ const AppContent: React.FC = () => {
     else if (activeFilter === 'recent') {
       result = [...result].sort((a,b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()).slice(0, 15);
     } else if (activeFilter) {
+      // Logic for filtering by folder AND its subfolders
+      // e.g. "Work" should show notes in "Work" AND "Work/Projects"
+      // Wait, user requirement says: "also in the main folder on the right side it will show subfolders"
+      // Usually notes in subfolders are NOT shown in parent unless user explicitly asks.
+      // Strict matching is safer for "organizing".
+      // Let's do strict matching for now, OR startsWith check if we want to include descendants.
+      // Given the dashboard shows subfolders separately, strict matching for "Notes in this specific folder" is cleaner.
       result = result.filter(n => n.folder === activeFilter);
     }
 
@@ -640,13 +654,23 @@ const AppContent: React.FC = () => {
   };
 
   const handleCreateFolder = async (name: string) => {
-    const newFolders = await storageService.createFolder(name);
+    // If we have a parent folder, prepend it
+    const finalName = parentFolderForNewFolder ? `${parentFolderForNewFolder}/${name}` : name;
+    
+    const newFolders = await storageService.createFolder(finalName);
     setFolders(newFolders);
+    setParentFolderForNewFolder(null); // Reset
   };
 
   const handleSelectNote = (noteId: string) => {
     navigate(`/notes/${noteId}`);
     if (window.innerWidth < 768) setSidebarOpen(false);
+  };
+
+  // Callback for creating subfolder from Dashboard
+  const handleRequestCreateSubfolder = (parentPath: string) => {
+    setParentFolderForNewFolder(parentPath);
+    setFolderModalOpen(true);
   };
 
   if (loading) {
@@ -675,7 +699,10 @@ const AppContent: React.FC = () => {
           onSelectNote={handleSelectNote}
           onCreateNote={handleCreateNote}
           onSelectFilter={setActiveFilter}
-          onAddFolder={() => setFolderModalOpen(true)}
+          onAddFolder={() => {
+            setParentFolderForNewFolder(null);
+            setFolderModalOpen(true);
+          }}
           onOpenSettings={() => setSettingsOpen(true)}
         />
       </div>
@@ -707,7 +734,10 @@ const AppContent: React.FC = () => {
                <Dashboard 
                  notes={filteredNotes} 
                  filterName={searchQuery ? `Search: "${searchQuery}"` : (activeFilter || 'All Notes')}
+                 folders={folders} /* PASS ALL FOLDERS TO FIND SUBFOLDERS */
                  onCreateNote={handleCreateNote} 
+                 onCreateSubfolder={handleRequestCreateSubfolder}
+                 onSelectSubfolder={(path) => setActiveFilter(path)}
                />
             </div>
           } />
@@ -723,8 +753,12 @@ const AppContent: React.FC = () => {
       
       <CreateFolderModal 
         isOpen={isFolderModalOpen}
-        onClose={() => setFolderModalOpen(false)}
+        onClose={() => {
+          setFolderModalOpen(false);
+          setParentFolderForNewFolder(null);
+        }}
         onCreate={handleCreateFolder}
+        parentFolder={parentFolderForNewFolder}
       />
     </div>
   );
