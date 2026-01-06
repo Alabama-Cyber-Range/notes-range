@@ -1,0 +1,5 @@
+{
+  "name": "AuraNotes",
+  "description": "An ultra-minimalist, Apple-esque note-taking application featuring a Notion-style rich text editor (Tiptap), auto-save, and version history.",
+  "requestFramePermissions": []
+}
