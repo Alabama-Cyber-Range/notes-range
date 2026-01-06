@@ -5,7 +5,7 @@ export const useElectron = () => {
   const [isElectron, setIsElectron] = useState(false);
 
   useEffect(() => {
-    setIsElectron(typeof window !== 'undefined' && window.electronAPI);
+    setIsElectron(typeof window !== 'undefined' && !!window.electronAPI);
   }, []);
 
   return isElectron;
@@ -27,8 +27,11 @@ export const useElectronShortcuts = (onSearch: () => void, onNewNote: () => void
 
     // Cleanup
     return () => {
-      window.electronAPI.removeAllListeners('global-search');
-      window.electronAPI.removeAllListeners('create-new-note');
+
+      if (window.electronAPI) {
+        window.electronAPI.removeAllListeners('global-search');
+        window.electronAPI.removeAllListeners('create-new-note');
+      }
     };
   }, [isElectron, onSearch, onNewNote]);
 };

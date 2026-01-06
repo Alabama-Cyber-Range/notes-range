@@ -2,15 +2,15 @@
   "name": "auranotes",
   "private": true,
   "version": "1.0.0",
-  "main": "main.js",
+  "main": "main.cjs",
   "homepage": "./",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "electron": "electron .",
-    "electron-dev": "concurrently \"npm run dev\" \"wait-on http://localhost:5173 && electron .\"",
+    "electron": "electron main.cjs",
+    "electron-dev": "concurrently \"npm run dev\" \"wait-on http://localhost:5173 && electron main.cjs\"",
     "electron-pack": "npm run build && electron-builder",
     "dist": "npm run build && electron-builder --publish=never"
   },
@@ -52,8 +52,8 @@
       "output": "release"
     },
     "files": [
-      "main.js",
-      "preload.js",
+      "main.cjs",
+      "preload.cjs",
       "dist/**/*",
       "node_modules/**/*"
     ],

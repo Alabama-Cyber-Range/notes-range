@@ -1,1 +1,17 @@
-export interface ElectronAPI {\n  onGlobalSearch: (callback: () => void) => void;\n  onCreateNewNote: (callback: () => void) => void;\n  minimizeWindow: () => void;\n  maximizeWindow: () => void;\n  closeWindow: () => void;\n  getAppVersion: () => Promise<string>;\n  removeAllListeners: (channel: string) => void;\n}\n\ndeclare global {\n  interface Window {\n    electronAPI: ElectronAPI;\n  }\n}\n\nexport {};
+export interface ElectronAPI {
+  onGlobalSearch: (callback: () => void) => void;
+  onCreateNewNote: (callback: () => void) => void;
+  minimizeWindow: () => void;
+  maximizeWindow: () => void;
+  closeWindow: () => void;
+  getAppVersion: () => Promise<string>;
+  removeAllListeners: (channel: string) => void;
+}
+
+declare global {
+  interface Window {
+    electronAPI: ElectronAPI;
+  }
+}
+
+export {};

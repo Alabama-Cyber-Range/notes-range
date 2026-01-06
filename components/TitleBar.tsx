@@ -1,1 +1,53 @@
-import React from 'react';\nimport { Minus, Square, X } from 'lucide-react';\nimport { useElectronWindow } from '../hooks/useElectron';\n\nconst TitleBar: React.FC = () => {\n  const { isElectron, minimizeWindow, maximizeWindow, closeWindow } = useElectronWindow();\n\n  // Only show title bar in Electron on Windows/Linux\n  if (!isElectron || process.platform === 'darwin') {\n    return null;\n  }\n\n  return (\n    <div className=\"flex items-center justify-between h-10 bg-gray-900 border-b border-gray-700 select-none\">\n      {/* App Title */}\n      <div className=\"flex items-center px-4\">\n        <div className=\"w-4 h-4 rounded bg-gradient-to-r from-purple-500 to-pink-500 mr-2\" />\n        <span className=\"text-sm font-medium text-gray-200\">AuraNotes</span>\n      </div>\n\n      {/* Window Controls */}\n      <div className=\"flex\">\n        <button\n          onClick={minimizeWindow}\n          className=\"flex items-center justify-center w-12 h-10 text-gray-400 hover:text-white hover:bg-gray-700 transition-colors\"\n          title=\"Minimize\"\n        >\n          <Minus size={16} />\n        </button>\n        <button\n          onClick={maximizeWindow}\n          className=\"flex items-center justify-center w-12 h-10 text-gray-400 hover:text-white hover:bg-gray-700 transition-colors\"\n          title=\"Maximize\"\n        >\n          <Square size={14} />\n        </button>\n        <button\n          onClick={closeWindow}\n          className=\"flex items-center justify-center w-12 h-10 text-gray-400 hover:text-white hover:bg-red-600 transition-colors\"\n          title=\"Close\"\n        >\n          <X size={16} />\n        </button>\n      </div>\n    </div>\n  );\n};\n\nexport default TitleBar;
+import React from 'react';
+import { Minus, Square, X } from 'lucide-react';
+import { useElectronWindow } from '../hooks/useElectron';
+
+const TitleBar: React.FC = () => {
+  const { isElectron, minimizeWindow, maximizeWindow, closeWindow } = useElectronWindow();
+
+  // Only show title bar in Electron on Windows/Linux
+  // Note: process.platform is not available in renderer, so we check for Windows behavior
+  const isWindows = navigator.platform.indexOf('Win') > -1;
+  const isMacOS = navigator.platform.indexOf('Mac') > -1;
+  
+  if (!isElectron || isMacOS) {
+    return null;
+  }
+
+  return (
+    <div className="flex items-center justify-between h-10 bg-gray-900 border-b border-gray-700 select-none">
+      {/* App Title */}
+      <div className="flex items-center px-4">
+        <div className="w-4 h-4 rounded bg-gradient-to-r from-purple-500 to-pink-500 mr-2" />
+        <span className="text-sm font-medium text-gray-200">AuraNotes</span>
+      </div>
+
+      {/* Window Controls */}
+      <div className="flex">
+        <button
+          onClick={minimizeWindow}
+          className="flex items-center justify-center w-12 h-10 text-gray-400 hover:text-white hover:bg-gray-700 transition-colors"
+          title="Minimize"
+        >
+          <Minus size={16} />
+        </button>
+        <button
+          onClick={maximizeWindow}
+          className="flex items-center justify-center w-12 h-10 text-gray-400 hover:text-white hover:bg-gray-700 transition-colors"
+          title="Maximize"
+        >
+          <Square size={14} />
+        </button>
+        <button
+          onClick={closeWindow}
+          className="flex items-center justify-center w-12 h-10 text-gray-400 hover:text-white hover:bg-red-600 transition-colors"
+          title="Close"
+        >
+          <X size={16} />
+        </button>
+      </div>
+    </div>
+  );
+};
+
+export default TitleBar;

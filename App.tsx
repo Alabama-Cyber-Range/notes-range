@@ -3,6 +3,8 @@ import { HashRouter as Router, Route, Routes, useParams, useNavigate } from 'rea
 import Sidebar from './components/Sidebar';
 import Editor from './components/Editor';
 import Dashboard from './components/Dashboard';
+import TitleBar from './components/TitleBar';
+import { useElectronShortcuts } from './hooks/useElectron';
 import { storageService } from './services/storage';
 import { Note, Revision, Priority } from './types';
 import { Loader2, History, Menu, X, MoreHorizontal, FileText, Plus, Moon, Sun, FolderPlus, ArrowLeft, Calendar as CalendarIcon, Flag, Bell, ChevronDown } from 'lucide-react';
@@ -673,43 +675,63 @@ const AppContent: React.FC = () => {
     setFolderModalOpen(true);
   };
 
+  // Electron shortcuts integration
+  const handleGlobalSearch = useCallback(() => {
+    // Focus on search if sidebar is open, otherwise open sidebar and focus search
+    if (!isSidebarOpen) {
+      setSidebarOpen(true);
+    }
+    // Navigate to main dashboard for search
+    navigate('/');
+    // The search input will be focused by the Sidebar component
+  }, [isSidebarOpen, navigate]);
+
+  const handleGlobalNewNote = useCallback(() => {
+    handleCreateNote();
+  }, [handleCreateNote]);
+
+  // Register Electron shortcuts
+  useElectronShortcuts(handleGlobalSearch, handleGlobalNewNote);
+
   if (loading) {
     return <div className="h-screen w-full flex items-center justify-center bg-bg text-fg font-mono">Loading_System...</div>;
   }
 
   return (
-    <div className="flex h-screen w-full overflow-hidden bg-bg text-fg font-mono transition-colors duration-300">
-      <div 
-        className={`
-          fixed md:relative inset-y-0 left-0 z-30 
-          w-64 transform transition-transform duration-300 ease-in-out
-          ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'}
-          ${window.innerWidth < 768 ? 'shadow-2xl' : ''}
-          md:translate-x-0 md:w-64 md:flex-shrink-0
-          ${!isSidebarOpen && 'md:hidden'} 
-        `}
-      >
-        <Sidebar 
-          notes={filteredNotes}
-          folders={folders}
-          currentNoteId={id} 
-          activeFilter={activeFilter}
-          searchQuery={searchQuery}
-          onSearch={setSearchQuery}
-          onSelectNote={handleSelectNote}
-          onCreateNote={handleCreateNote}
-          onSelectFilter={setActiveFilter}
-          onAddFolder={() => {
-            setParentFolderForNewFolder(null);
-            setFolderModalOpen(true);
-          }}
-          onOpenSettings={() => setSettingsOpen(true)}
-        />
-      </div>
+    <div className="flex h-screen w-full overflow-hidden bg-bg text-fg font-mono transition-colors duration-300 flex-col">
+      <TitleBar />
+      <div className="flex flex-1 overflow-hidden">
+        <div 
+          className={`
+            fixed md:relative inset-y-0 left-0 z-30 
+            w-64 transform transition-transform duration-300 ease-in-out
+            ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'}
+            ${window.innerWidth < 768 ? 'shadow-2xl' : ''}
+            md:translate-x-0 md:w-64 md:flex-shrink-0
+            ${!isSidebarOpen && 'md:hidden'} 
+          `}
+        >
+          <Sidebar 
+            notes={filteredNotes}
+            folders={folders}
+            currentNoteId={id} 
+            activeFilter={activeFilter}
+            searchQuery={searchQuery}
+            onSearch={setSearchQuery}
+            onSelectNote={handleSelectNote}
+            onCreateNote={handleCreateNote}
+            onSelectFilter={setActiveFilter}
+            onAddFolder={() => {
+              setParentFolderForNewFolder(null);
+              setFolderModalOpen(true);
+            }}
+            onOpenSettings={() => setSettingsOpen(true)}
+          />
+        </div>
 
-      {isSidebarOpen && window.innerWidth < 768 && (
-         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-20" onClick={() => setSidebarOpen(false)} />
-      )}
+        {isSidebarOpen && window.innerWidth < 768 && (
+           <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-20" onClick={() => setSidebarOpen(false)} />
+        )}
 
       <div className="flex-1 flex flex-col h-full w-full relative">
         <Routes>
@@ -743,7 +765,8 @@ const AppContent: React.FC = () => {
           } />
         </Routes>
       </div>
-
+      </div>
+      
       <SettingsModal 
         isOpen={isSettingsOpen} 
         onClose={() => setSettingsOpen(false)} 
@@ -762,7 +785,7 @@ const AppContent: React.FC = () => {
       />
     </div>
   );
-};
+}; // Ensure AppContent function closes here
 
 export default function App() {
   return (
