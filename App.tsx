@@ -1,536 +1,204 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { HashRouter as Router, Route, Routes, useParams, useNavigate } from 'react-router-dom';
+import React, { useState, useEffect } from 'react';
+import { HashRouter as Router, Routes, Route, useParams, useNavigate, useLocation } from 'react-router-dom';
 import Sidebar from './components/Sidebar';
-import Editor from './components/Editor';
 import Dashboard from './components/Dashboard';
+import Editor from './components/Editor';
 import TitleBar from './components/TitleBar';
-import { useElectronShortcuts } from './hooks/useElectron';
-import { storageService } from './services/storage';
-import { Note, Revision, Priority } from './types';
-import { Loader2, History, Menu, X, MoreHorizontal, FileText, Plus, Moon, Sun, FolderPlus, ArrowLeft, Calendar as CalendarIcon, Flag, Bell, ChevronDown } from 'lucide-react';
-import { format, isToday, isPast, parseISO, startOfMonth, endOfMonth, eachDayOfInterval, addMonths, subMonths, getDay, isSameDay } from 'date-fns';
+import { generateClient } from 'aws-amplify/data';
+import { getCurrentUser } from 'aws-amplify/auth';
+import type { Schema } from './amplify/data/resource';
+import { Note, Folder } from './types';
+import { X, ArrowLeft } from 'lucide-react';
 
-// -----------------------------------------------------------------------------
-// Utilities & Custom Hooks
-// -----------------------------------------------------------------------------
-
-function useDebounce<T>(value: T, delay: number): T {
-  const [debouncedValue, setDebouncedValue] = useState<T>(value);
-  useEffect(() => {
-    const handler = setTimeout(() => setDebouncedValue(value), delay);
-    return () => clearTimeout(handler);
-  }, [value, delay]);
-  return debouncedValue;
-}
-
-const getTextFromContent = (json: any): string => {
-  if (!json) return '';
-  if (Array.isArray(json)) {
-    return json.map(getTextFromContent).join(' ');
-  }
-  if (json.text) {
-    return json.text;
-  }
-  if (json.content) {
-    return getTextFromContent(json.content);
-  }
-  return '';
-};
-
-// -----------------------------------------------------------------------------
-// UI Components
-// -----------------------------------------------------------------------------
-
-// Sleek Custom Date Picker using date-fns
-const DatePicker: React.FC<{
-  date: string | null;
-  onChange: (date: string | null) => void;
-  onClose: () => void;
-}> = ({ date, onChange, onClose }) => {
-  const [currentDate, setCurrentDate] = useState(date ? parseISO(date) : new Date());
-  
-  const days = eachDayOfInterval({
-    start: startOfMonth(currentDate),
-    end: endOfMonth(currentDate),
-  });
-
-  const startDay = getDay(startOfMonth(currentDate)); // 0 = Sunday
-
-  const handleDayClick = (day: Date) => {
-    // Set time to noon to avoid timezone switching issues on simple dates
-    const d = new Date(day);
-    d.setHours(12, 0, 0, 0);
-    onChange(d.toISOString());
-    onClose();
-  };
-
-  return (
-    <div className="absolute top-10 right-0 z-50 bg-bg border border-border shadow-xl w-64 p-4 rounded-sm font-mono animate-in fade-in zoom-in-95 duration-100">
-       <div className="flex justify-between items-center mb-4">
-          <button onClick={() => setCurrentDate(subMonths(currentDate, 1))} className="p-1 hover:bg-muted text-muted-fg hover:text-fg">&lt;</button>
-          <span className="font-bold text-sm">{format(currentDate, 'MMMM yyyy')}</span>
-          <button onClick={() => setCurrentDate(addMonths(currentDate, 1))} className="p-1 hover:bg-muted text-muted-fg hover:text-fg">&gt;</button>
-       </div>
-       <div className="grid grid-cols-7 gap-1 mb-2 text-center text-xs text-muted-fg">
-          {['Su','Mo','Tu','We','Th','Fr','Sa'].map(d => <div key={d}>{d}</div>)}
-       </div>
-       <div className="grid grid-cols-7 gap-1 text-center">
-          {Array.from({ length: startDay }).map((_, i) => <div key={`empty-${i}`} />)}
-          {days.map(day => {
-            const isSelected = date && isSameDay(parseISO(date), day);
-            const isTodayDate = isToday(day);
-            return (
-              <button 
-                key={day.toISOString()} 
-                onClick={() => handleDayClick(day)}
-                className={`
-                  w-8 h-8 flex items-center justify-center text-xs rounded-full transition-colors
-                  ${isSelected ? 'bg-fg text-bg font-bold' : 'hover:bg-muted text-fg'}
-                  ${!isSelected && isTodayDate ? 'border border-fg' : ''}
-                `}
-              >
-                {format(day, 'd')}
-              </button>
-            )
-          })}
-       </div>
-       <div className="mt-4 flex justify-between border-t border-border pt-2">
-         <button onClick={() => { onChange(null); onClose(); }} className="text-xs text-muted-fg hover:text-red-500">Clear</button>
-         <button onClick={onClose} className="text-xs text-muted-fg hover:text-fg">Close</button>
-       </div>
-    </div>
-  );
-};
-
-// Custom Priority Dropdown
-const PriorityDropdown: React.FC<{
-  priority: Priority;
-  onChange: (p: Priority) => void;
-}> = ({ priority, onChange }) => {
-  const [isOpen, setIsOpen] = useState(false);
-  const wrapperRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    function handleClickOutside(event: MouseEvent) {
-      if (wrapperRef.current && !wrapperRef.current.contains(event.target as Node)) {
-        setIsOpen(false);
-      }
-    }
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
-
-  const priorityColors = {
-    high: 'text-red-500',
-    medium: 'text-yellow-500',
-    low: 'text-blue-500',
-    none: 'text-muted-fg'
-  };
-
-  const options: Priority[] = ['high', 'medium', 'low', 'none'];
-
-  return (
-    <div className="relative" ref={wrapperRef}>
-       <button 
-         onClick={() => setIsOpen(!isOpen)}
-         className={`flex items-center gap-1 text-xs hover:bg-muted p-1 rounded transition-colors uppercase font-bold ${priorityColors[priority]}`}
-       >
-          <Flag size={14} />
-          <span>{priority === 'none' ? 'Priority' : priority}</span>
-          <ChevronDown size={10} className="opacity-50" />
-       </button>
-       
-       {isOpen && (
-         <div className="absolute top-8 left-0 z-50 w-32 bg-bg border border-border shadow-xl rounded-sm py-1 animate-in fade-in zoom-in-95 duration-100 flex flex-col">
-            {options.map(opt => (
-               <button
-                 key={opt}
-                 onClick={() => { onChange(opt); setIsOpen(false); }}
-                 className={`flex items-center gap-2 px-3 py-2 text-xs font-bold uppercase hover:bg-muted w-full text-left transition-colors ${priorityColors[opt]}`}
-               >
-                 <span className={`w-2 h-2 rounded-full ${opt === 'none' ? 'border border-muted-fg' : ''} ${opt === 'high' ? 'bg-red-500' : opt === 'medium' ? 'bg-yellow-500' : opt === 'low' ? 'bg-blue-500' : ''}`} />
-                 {opt}
-               </button>
-            ))}
-         </div>
-       )}
-    </div>
-  );
-};
-
-// Toast Notification System
-interface ToastMessage {
-  id: string;
-  title: string;
-  description: string;
-  action?: () => void;
-}
-
-const ToastContext = React.createContext<{
-  addToast: (toast: Omit<ToastMessage, 'id'>) => void;
-}>({ addToast: () => {} });
-
-const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [toasts, setToasts] = useState<ToastMessage[]>([]);
-
-  const addToast = useCallback((toast: Omit<ToastMessage, 'id'>) => {
-    const id = Math.random().toString(36).substring(2);
-    setToasts(prev => [...prev, { ...toast, id }]);
-    setTimeout(() => {
-      setToasts(prev => prev.filter(t => t.id !== id));
-    }, 5000);
-  }, []);
-
-  return (
-    <ToastContext.Provider value={{ addToast }}>
-      {children}
-      <div className="fixed bottom-4 right-4 z-[100] flex flex-col gap-2 pointer-events-none">
-        {toasts.map(t => (
-          <div 
-            key={t.id} 
-            className="pointer-events-auto min-w-[300px] bg-bg/90 backdrop-blur border border-border p-4 shadow-2xl rounded-sm animate-slide-up flex items-start gap-3"
-          >
-             <Bell className="text-fg shrink-0 mt-0.5" size={16} />
-             <div className="flex-1">
-                <h4 className="font-bold text-sm text-fg">{t.title}</h4>
-                <p className="text-xs text-muted-fg mt-1">{t.description}</p>
-             </div>
-             {t.action && (
-               <button onClick={t.action} className="text-xs font-bold text-fg hover:underline">View</button>
-             )}
-             <button onClick={() => setToasts(prev => prev.filter(x => x.id !== t.id))} className="text-muted-fg hover:text-fg">
-               <X size={14} />
-             </button>
-          </div>
-        ))}
-      </div>
-    </ToastContext.Provider>
-  );
-};
-
-// -----------------------------------------------------------------------------
-// Component: Note View
-// -----------------------------------------------------------------------------
-const NoteView: React.FC<{ 
-  notes: Note[]; 
-  refreshNotes: () => void; 
+// Note Editor with back navigation
+const NoteEditor: React.FC<{
+  notes: Note[];
+  refreshNotes: () => void;
   toggleSidebar: () => void;
   isSidebarOpen: boolean;
-}> = ({ notes, refreshNotes, toggleSidebar, isSidebarOpen }) => {
+  theme: string;
+}> = ({ notes, refreshNotes, toggleSidebar, isSidebarOpen, theme }) => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [note, setNote] = useState<Note | null>(null);
   const [content, setContent] = useState<any>(null);
   const [title, setTitle] = useState('');
-  const [priority, setPriority] = useState<Priority>('none');
-  const [reminderAt, setReminderAt] = useState<string | null>(null);
-  const [status, setStatus] = useState<'saved' | 'saving' | 'error'>('saved');
-  const [revisions, setRevisions] = useState<Revision[]>([]);
-  const [showHistory, setShowHistory] = useState(false);
-  const [showDatePicker, setShowDatePicker] = useState(false);
-  
-  const debouncedContent = useDebounce(content, 1000);
-  const debouncedTitle = useDebounce(title, 1000);
 
   useEffect(() => {
     if (!id) return;
     const loadNote = async () => {
-      const data = await storageService.getNote(id);
-      if (data) {
-        setNote(data);
-        setTitle(data.title);
-        setContent(data.content);
-        setPriority(data.priority);
-        setReminderAt(data.reminderAt);
-      } else {
+      try {
+        const { data } = await client.models.Note.get({ id });
+        if (data) {
+          setNote(data as any);
+          setTitle(data.title || '');
+          setContent(data.content ? JSON.parse(data.content) : null);
+        } else {
+          navigate('/');
+        }
+      } catch (error) {
+        console.error('Failed to load note:', error);
         navigate('/');
       }
     };
     loadNote();
   }, [id, navigate]);
 
-  // Save Title
-  useEffect(() => {
-    if (!note || !id || debouncedTitle === note.title) return;
-    const saveTitle = async () => {
-      setStatus('saving');
-      try {
-        await storageService.updateNote(id, { title: debouncedTitle });
-        setNote(prev => prev ? ({ ...prev, title: debouncedTitle }) : null);
-        setStatus('saved');
-        refreshNotes();
-      } catch (err) {
-        setStatus('error');
-      }
-    };
-    saveTitle();
-  }, [debouncedTitle, id]);
-
-  // Save Content
-  useEffect(() => {
-    if (!note || !id || JSON.stringify(debouncedContent) === JSON.stringify(note.content)) return;
-    const saveContent = async () => {
-      setStatus('saving');
-      try {
-        await storageService.updateNote(id, { content: debouncedContent });
-        setNote(prev => prev ? ({ ...prev, content: debouncedContent }) : null);
-        setStatus('saved');
-        refreshNotes();
-      } catch (err) {
-        setStatus('error');
-      }
-    };
-    saveContent();
-  }, [debouncedContent, id]);
-
-  // Save Metadata (Priority/Reminder) immediately on change
-  const handleUpdateMetadata = async (updates: Partial<Note>) => {
-    if (!id) return;
-    setStatus('saving');
+  const handleSave = async (updates: { title?: string; content?: any }) => {
+    if (!note) return;
     try {
-      await storageService.updateNote(id, updates);
-      setNote(prev => prev ? ({ ...prev, ...updates }) : null);
-      setStatus('saved');
-      refreshNotes();
-    } catch(err) {
-      setStatus('error');
+      // 1. Prepare data for Amplify (Amplify expects content as a string)
+      const updateData: any = { id: note.id };
+      
+      if (updates.title !== undefined) updateData.title = updates.title;
+      if (updates.content !== undefined) updateData.content = JSON.stringify(updates.content);
+
+      // 2. Perform the cloud update
+      const { data: updatedNote, errors } = await client.models.Note.update(updateData);
+
+      if (errors) {
+        console.error("Amplify Update Error:", errors);
+      } else if (updatedNote) {
+        setNote(updatedNote as any);
+        // observeQuery will handle refreshing the notes list
+      }
+    } catch (err) {
+      console.error("Cloud sync failed:", err);
     }
   };
 
-  const handleFetchHistory = async () => {
-    if (!id) return;
-    const revs = await storageService.getRevisions(id);
-    setRevisions(revs);
-    setShowHistory(true);
+  const handleTitleChange = (newTitle: string) => {
+    setTitle(newTitle);
+    handleSave({ title: newTitle });
   };
 
-  const handleRestore = (rev: Revision) => {
-    if (confirm('Restore this version? This will overwrite current changes.')) {
-      setContent(rev.content);
-      setShowHistory(false);
-    }
-  };
-
-  const handleDelete = async () => {
-     if (!id || !confirm('Delete this note?')) return;
-     await storageService.deleteNote(id);
-     refreshNotes();
-     navigate('/');
+  const handleContentChange = (newContent: any) => {
+    setContent(newContent);
+    handleSave({ content: newContent });
   };
 
   if (!note) {
     return (
-      <div className="flex-1 flex items-center justify-center bg-bg h-full">
-         <Loader2 className="animate-spin text-muted-fg" size={32} />
+      <div className={`flex h-screen items-center justify-center ${theme === 'dark' ? 'bg-[#151515] text-[#d3d3d3]' : 'bg-[#d3d3d3] text-[#151515]'}`}>
+        <div className="text-lg">Loading note...</div>
       </div>
     );
   }
 
   return (
-    <div className="flex-1 h-full overflow-hidden flex flex-col bg-bg transition-colors duration-300 relative">
-      {/* Top Bar */}
-      <header className="h-12 border-b border-border flex items-center justify-between px-4 sticky top-0 bg-bg/90 backdrop-blur-md z-20 font-mono text-sm">
-        <div className="flex items-center space-x-3 overflow-hidden">
-          <button 
-             onClick={() => navigate('/')} 
-             className="p-1 hover:bg-muted rounded text-muted-fg hover:text-fg transition-colors"
-             title="Back to Dashboard"
+    <div className={`flex flex-col h-full ${theme === 'dark' ? 'bg-[#151515] text-[#d3d3d3]' : 'bg-[#d3d3d3] text-[#151515]'}`}>
+      {/* Header with back button */}
+      <div className={`flex items-center justify-between p-4 border-b ${theme === 'dark' ? 'border-[#3f3f3f]' : 'border-[#7f7f7f]'}`}>
+        <div className="flex items-center space-x-3">
+          <button
+            onClick={() => {
+              // Navigate back to the parent folder if the note has one, otherwise go to root
+              if (note.folder) {
+                navigate(`/?folder=${encodeURIComponent(note.folder)}`);
+              } else {
+                navigate('/');
+              }
+            }}
+            className={`flex items-center space-x-2 transition-colors ${
+              theme === 'dark' ? 'text-[#7f7f7f] hover:text-[#d3d3d3]' : 'text-[#3f3f3f] hover:text-[#151515]'
+            }`}
           >
-             <ArrowLeft size={16} />
-          </button>
-
-          {!isSidebarOpen && (
-            <button onClick={toggleSidebar} className="p-1 hover:bg-muted rounded text-muted-fg">
-               <Menu size={16} />
-            </button>
-          )}
-          <div className="flex items-center space-x-2 text-muted-fg truncate">
-            <span>{note.folder || 'General'}</span>
-          </div>
-        </div>
-
-        <div className="flex items-center space-x-3 md:space-x-4 flex-shrink-0">
-          
-          {/* Metadata Controls */}
-          <div className="flex items-center gap-2 border-r border-border pr-3">
-             
-             {/* Custom Priority Dropdown */}
-             <PriorityDropdown 
-                priority={priority} 
-                onChange={(p) => {
-                  setPriority(p);
-                  handleUpdateMetadata({ priority: p });
-                }}
-             />
-
-             {/* Reminder Date */}
-             <div className="relative">
-                <button 
-                  onClick={() => setShowDatePicker(!showDatePicker)}
-                  className={`flex items-center gap-1 text-xs hover:bg-muted p-1 rounded transition-colors ${reminderAt ? 'text-fg font-bold' : 'text-muted-fg'}`}
-                  title={reminderAt ? format(parseISO(reminderAt), 'PPP') : 'Set Reminder'}
-                >
-                   <CalendarIcon size={14} />
-                   <span>{reminderAt ? format(parseISO(reminderAt), 'MMM d') : ''}</span>
-                </button>
-                {showDatePicker && (
-                  <DatePicker 
-                    date={reminderAt} 
-                    onChange={(d) => {
-                      setReminderAt(d);
-                      handleUpdateMetadata({ reminderAt: d });
-                    }} 
-                    onClose={() => setShowDatePicker(false)} 
-                  />
-                )}
-             </div>
-          </div>
-
-          <div className="flex items-center space-x-1.5 text-xs text-muted-fg">
-            {status === 'saving' && <span className="animate-pulse">Saving...</span>}
-            {status === 'saved' && <span>Saved</span>}
-          </div>
-
-          <div className="h-4 w-px bg-border"></div>
-
-          <button onClick={handleFetchHistory} className="text-muted-fg hover:text-fg" title="History">
-            <History size={16} />
-          </button>
-          
-           <button onClick={handleDelete} className="text-muted-fg hover:text-red-500" title="Delete">
-            <MoreHorizontal size={16} />
+            <ArrowLeft size={20} />
+            <span className="text-sm">
+              {note.folder ? `Back to ${note.folder}` : 'Back to Notes'}
+            </span>
           </button>
         </div>
-      </header>
+        <button
+          onClick={toggleSidebar}
+          className={`transition-colors lg:hidden ${
+            theme === 'dark' ? 'text-[#bebebe] hover:text-[#d3d3d3]' : 'text-[#2a2a2a] hover:text-[#151515]'
+          }`}
+        >
+          ☰
+        </button>
+      </div>
 
-      {/* Editor Main */}
-      <main className="flex-1 overflow-y-auto px-4 sm:px-12 md:px-24 py-8 custom-scrollbar bg-bg">
-        <input 
-           type="text" 
-           value={title}
-           onChange={(e) => setTitle(e.target.value)}
-           placeholder="Untitled"
-           className="w-full text-3xl font-bold text-fg placeholder-muted-fg border-none outline-none bg-transparent mb-6 max-w-4xl mx-auto block font-mono"
+      {/* Title */}
+      <div className={`p-4 border-b ${theme === 'dark' ? 'border-[#404040]' : 'border-gray-300'}`}>
+        <input
+          type="text"
+          value={title}
+          onChange={(e) => handleTitleChange(e.target.value)}
+          className={`w-full text-2xl font-bold bg-transparent border-none outline-none resize-none ${
+            theme === 'dark' ? 'text-[#d3d3d3] placeholder-[#7f7f7f]' : 'text-[#151515] placeholder-[#3f3f3f]'
+          }`}
+          placeholder="Untitled Note"
         />
-        <Editor content={content} onChange={setContent} />
-      </main>
+      </div>
 
-      {/* History Drawer */}
-      {showHistory && (
-        <div className="absolute inset-y-0 right-0 w-80 bg-bg border-l border-border shadow-2xl z-50 flex flex-col font-mono">
-          <div className="p-4 border-b border-border flex items-center justify-between">
-             <h3 className="text-fg font-bold">History</h3>
-             <button onClick={() => setShowHistory(false)} className="text-muted-fg hover:text-fg"><X size={16}/></button>
-          </div>
-          <div className="flex-1 overflow-y-auto p-4 space-y-3">
-             {revisions.map((rev) => (
-                <div key={rev.id} className="border border-border p-3 hover:border-fg bg-muted/50">
-                   <div className="flex justify-between items-start mb-2">
-                      <div className="text-xs text-muted-fg">
-                         {format(new Date(rev.savedAt), 'yyyy-MM-dd HH:mm')}
-                      </div>
-                      <button onClick={() => handleRestore(rev)} className="text-xs text-accent-fg hover:underline">Restore</button>
-                   </div>
-                </div>
-             ))}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-};
-
-// -----------------------------------------------------------------------------
-// Component: Modals
-// -----------------------------------------------------------------------------
-const SettingsModal: React.FC<{ 
-  isOpen: boolean; 
-  onClose: () => void;
-  theme: 'dark' | 'light';
-  toggleTheme: () => void;
-}> = ({ isOpen, onClose, theme, toggleTheme }) => {
-  if (!isOpen) return null;
-  return (
-    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-      <div className="bg-bg border border-border w-full max-w-md p-6 shadow-2xl font-mono text-fg transition-colors duration-300">
-        <div className="flex justify-between items-center mb-6">
-          <h2 className="text-xl font-bold">Settings</h2>
-          <button onClick={onClose} className="text-muted-fg hover:text-fg"><X size={20}/></button>
-        </div>
-        <div className="space-y-4">
-          <div className="flex justify-between items-center p-3 border border-border">
-            <span className="text-fg">Appearance</span>
-            <button 
-              onClick={toggleTheme}
-              className="flex items-center space-x-2 px-3 py-1.5 bg-muted hover:bg-accent hover:text-accent-fg transition-colors rounded-sm"
-            >
-               {theme === 'dark' ? <Moon size={14} /> : <Sun size={14} />}
-               <span className="text-sm uppercase">{theme} Mode</span>
-            </button>
-          </div>
-          <div className="flex justify-between items-center p-3 border border-border">
-            <span className="text-fg">Font</span>
-            <span className="text-muted-fg">Monospace</span>
-          </div>
-          <div className="flex justify-between items-center p-3 border border-border">
-             <span className="text-fg">Version</span>
-             <span className="text-muted-fg">1.3.0</span>
-          </div>
-        </div>
-        <div className="mt-6 flex justify-end">
-           <button onClick={onClose} className="px-4 py-2 bg-fg text-bg hover:opacity-90 transition-opacity font-bold rounded-sm">Close</button>
-        </div>
+      {/* Content Editor */}
+      <div className="flex-1 overflow-hidden">
+        <Editor
+          content={content}
+          onChange={handleContentChange}
+          placeholder="Start writing your note..."
+          theme={theme}
+        />
       </div>
     </div>
   );
 };
 
-const CreateFolderModal: React.FC<{ 
-  isOpen: boolean; 
+// Folder Creation Modal
+const FolderModal: React.FC<{
+  isOpen: boolean;
   onClose: () => void;
-  onCreate: (name: string) => void;
-  parentFolder?: string | null;
-}> = ({ isOpen, onClose, onCreate, parentFolder }) => {
+  onConfirm: (name: string) => void;
+}> = ({ isOpen, onClose, onConfirm }) => {
   const [folderName, setFolderName] = useState('');
-
-  if (!isOpen) return null;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (folderName.trim()) {
-      onCreate(folderName.trim());
+      onConfirm(folderName.trim());
       setFolderName('');
-      onClose();
     }
   };
 
+  const handleKeyPress = (e: React.KeyboardEvent) => {
+    if (e.key === 'Escape') onClose();
+  };
+
+  if (!isOpen) return null;
+
   return (
-    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-      <div className="bg-bg border border-border w-full max-w-sm p-6 shadow-2xl font-mono text-fg transition-colors duration-300">
-        <div className="flex justify-between items-center mb-6">
-          <h2 className="text-xl font-bold flex items-center gap-2">
-            <FolderPlus size={20} />
-            {parentFolder ? 'New Subfolder' : 'New Folder'}
-          </h2>
-          <button onClick={onClose} className="text-muted-fg hover:text-fg"><X size={20}/></button>
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onKeyDown={handleKeyPress}>
+      <div className="bg-[#2a2a2a] border border-[#404040] rounded-lg p-6 w-96">
+        <div className="flex justify-between items-center mb-4">
+          <h3 className="text-white font-bold uppercase tracking-wider text-sm">New Folder</h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-white transition-colors">
+            <X size={16} />
+          </button>
         </div>
-        {parentFolder && (
-          <div className="mb-4 text-xs text-muted-fg">
-            Creating inside: <span className="font-bold text-fg">{parentFolder}</span>
-          </div>
-        )}
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <input 
-            autoFocus
-            type="text" 
+        <form onSubmit={handleSubmit}>
+          <input
+            type="text"
             value={folderName}
             onChange={(e) => setFolderName(e.target.value)}
-            placeholder="Name..."
-            className="w-full bg-muted p-2 border border-border text-fg focus:ring-1 focus:ring-fg outline-none"
+            placeholder="Folder name"
+            className="w-full p-3 bg-[#1a1a1a] border border-[#404040] rounded text-white placeholder-gray-500 focus:outline-none focus:border-white"
+            autoFocus
           />
-          <div className="flex justify-end gap-2">
-             <button type="button" onClick={onClose} className="px-4 py-2 text-muted-fg hover:text-fg">Cancel</button>
-             <button type="submit" className="px-4 py-2 bg-fg text-bg hover:opacity-90 font-bold rounded-sm">Create</button>
+          <div className="flex space-x-3 mt-4">
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex-1 px-4 py-2 border border-[#404040] rounded text-gray-300 hover:text-white hover:border-white transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              className="flex-1 px-4 py-2 bg-white text-black rounded font-bold hover:bg-gray-200 transition-colors"
+            >
+              Create
+            </button>
           </div>
         </form>
       </div>
@@ -538,261 +206,474 @@ const CreateFolderModal: React.FC<{
   );
 };
 
-// -----------------------------------------------------------------------------
-// Main App Component
-// -----------------------------------------------------------------------------
+// Settings Modal
+const SettingsModal: React.FC<{
+  isOpen: boolean;
+  onClose: () => void;
+  currentUsername: string;
+  onUsernameChange: (username: string) => void;
+  currentTheme: string;
+  onThemeChange: (theme: string) => void;
+}> = ({ isOpen, onClose, currentUsername, onUsernameChange, currentTheme, onThemeChange }) => {
+  const [username, setUsername] = useState(localStorage.getItem('username') || 'Friend');
+  const [autoSave, setAutoSave] = useState(localStorage.getItem('autoSave') !== 'false');
+  const [theme, setTheme] = useState(currentTheme);
+
+  if (!isOpen) return null;
+
+  const handleSaveSettings = () => {
+    localStorage.setItem('username', username);
+    localStorage.setItem('autoSave', autoSave.toString());
+    localStorage.setItem('theme', theme);
+    onUsernameChange(username);
+    onThemeChange(theme);
+    onClose();
+  };
+
+  const toggleTheme = () => {
+    const newTheme = theme === 'dark' ? 'light' : 'dark';
+    setTheme(newTheme);
+  };
+
+  const handleKeyPress = (e: React.KeyboardEvent) => {
+    if (e.key === 'Escape') onClose();
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onKeyDown={handleKeyPress}>
+      <div className={`border rounded-lg p-6 w-96 ${currentTheme === 'dark' ? 'bg-[#2a2a2a] border-[#404040]' : 'bg-gray-100 border-gray-300'}`}>
+        <div className="flex justify-between items-center mb-6">
+          <h3 className={`font-bold uppercase tracking-wider text-sm ${currentTheme === 'dark' ? 'text-white' : 'text-black'}`}>Settings</h3>
+          <button onClick={onClose} className={`transition-colors ${currentTheme === 'dark' ? 'text-gray-400 hover:text-white' : 'text-gray-600 hover:text-black'}`}>
+            <X size={16} />
+          </button>
+        </div>
+        
+        <div className="space-y-4">
+          {/* Username */}
+          <div className="flex justify-between items-center">
+            <span className={`text-sm ${currentTheme === 'dark' ? 'text-gray-300' : 'text-gray-700'}`}>Display Name</span>
+            <input
+              type="text"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              className={`px-3 py-1 border rounded text-sm w-32 ${
+                currentTheme === 'dark'
+                  ? 'bg-[#1a1a1a] border-[#404040] text-white focus:border-white'
+                  : 'bg-gray-100 border-gray-300 text-black focus:border-gray-500'
+              }`}
+            />
+          </div>
+
+          {/* Auto Save */}
+          <div className="flex justify-between items-center">
+            <span className={`text-sm ${currentTheme === 'dark' ? 'text-gray-300' : 'text-gray-700'}`}>Auto Save</span>
+            <button
+              onClick={() => setAutoSave(!autoSave)}
+              className={`px-3 py-1 border rounded text-xs uppercase tracking-wider transition-colors ${
+                autoSave
+                  ? currentTheme === 'dark' 
+                    ? 'bg-white text-black border-white' 
+                    : 'bg-black text-white border-black'
+                  : currentTheme === 'dark'
+                    ? 'bg-[#1a1a1a] border-[#404040] text-gray-300 hover:border-white'
+                    : 'bg-gray-100 border-gray-300 text-gray-700 hover:border-gray-500'
+              }`}
+            >
+              {autoSave ? 'On' : 'Off'}
+            </button>
+          </div>
+        </div>
+
+        <div className="flex space-x-3 mt-6">
+          <button
+            onClick={onClose}
+            className={`flex-1 px-4 py-2 border rounded transition-colors ${
+              currentTheme === 'dark'
+                ? 'border-[#404040] text-gray-300 hover:text-white hover:border-white'
+                : 'border-gray-300 text-gray-700 hover:text-black hover:border-gray-500'
+            }`}
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleSaveSettings}
+            className="flex-1 px-4 py-2 bg-white text-black rounded font-bold hover:bg-gray-200 transition-colors"
+          >
+            Save
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// Create Amplify client at global scope
+const client = generateClient<Schema>();
+
 const AppContent: React.FC = () => {
-  const [allNotes, setAllNotes] = useState<Note[]>([]);
+  const [notes, setNotes] = useState<Note[]>([]);
   const [folders, setFolders] = useState<string[]>([]);
   const [filteredNotes, setFilteredNotes] = useState<Note[]>([]);
   const [activeFilter, setActiveFilter] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
   const [isSidebarOpen, setSidebarOpen] = useState(true);
+  const [showFolderModal, setShowFolderModal] = useState(false);
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [currentUsername, setCurrentUsername] = useState(localStorage.getItem('username') || 'Friend');
+  const [currentTheme, setCurrentTheme] = useState(localStorage.getItem('theme') || 'dark');
   
-  // Modals
-  const [isSettingsOpen, setSettingsOpen] = useState(false);
-  const [isFolderModalOpen, setFolderModalOpen] = useState(false);
-  const [parentFolderForNewFolder, setParentFolderForNewFolder] = useState<string | null>(null);
-  
-  const [theme, setTheme] = useState<'dark' | 'light'>('dark');
   const navigate = useNavigate();
+  const location = useLocation();
   const { id } = useParams<{ id: string }>();
-  const { addToast } = React.useContext(ToastContext);
 
-  // Check for upcoming reminders on load
-  const hasCheckedReminders = useRef(false);
-
-  // Theme Handling
+  // Handle URL-based folder filtering
   useEffect(() => {
-    const root = window.document.documentElement;
-    if (theme === 'dark') {
-      root.classList.add('dark');
-    } else {
-      root.classList.remove('dark');
+    const urlParams = new URLSearchParams(location.search);
+    const folderParam = urlParams.get('folder');
+    if (folderParam) {
+      setActiveFilter(decodeURIComponent(folderParam));
     }
-  }, [theme]);
+  }, [location.search]);
 
-  const toggleTheme = () => setTheme(prev => prev === 'dark' ? 'light' : 'dark');
+  const isElectron = typeof window !== 'undefined' && window.electron;
 
+  // Replace localStorage with Amplify observeQuery
   useEffect(() => {
-    const handleResize = () => {
-      setSidebarOpen(window.innerWidth >= 768);
-    };
-    handleResize();
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, []);
-
-  const loadData = useCallback(async () => {
-    const [n, f] = await Promise.all([storageService.getAllNotes(), storageService.getFolders()]);
-    setAllNotes(n);
-    setFolders(f);
-    setLoading(false);
-    return n; // Return for immediate check
-  }, []);
-
-  useEffect(() => {
-    loadData().then((notes) => {
-      // Check reminders only once per session load
-      if (!hasCheckedReminders.current && notes.length > 0) {
-        const today = new Date();
-        const due = notes.filter(n => {
-          if (!n.reminderAt) return false;
-          const d = parseISO(n.reminderAt);
-          return isSameDay(d, today) || isPast(d);
+    let subNotes: any;
+    let subFolders: any;
+    
+    const initializeSubscriptions = async () => {
+      try {
+        // Verify we have an authenticated user before starting subscriptions
+        const currentUser = await getCurrentUser();
+        console.log('🔐 Current user verified:', currentUser.username);
+        
+        // Subscribe to Notes - replaces storage.getNotes()
+        subNotes = client.models.Note.observeQuery().subscribe({
+          next: ({ items }) => {
+            console.log('📝 Notes received from Amplify:', items);
+            const notesData = items.map(item => ({
+              ...item,
+              content: item.content ? JSON.parse(item.content) : null,
+              lastModified: item.updatedAt || item.createdAt || new Date().toISOString()
+            })) as Note[];
+            console.log('📝 Processed notes:', notesData);
+            setNotes(notesData);
+            setLoading(false); // Stop loading once data is received
+          },
+          error: (err) => {
+            console.error('Error observing notes:', err);
+            setLoading(false);
+          }
         });
 
-        if (due.length > 0) {
-          addToast({
-            title: `Reminder Alert`,
-            description: `You have ${due.length} note${due.length === 1 ? '' : 's'} due today or overdue.`,
-            action: () => setActiveFilter(null) // Go to main dashboard
-          });
-        }
-        hasCheckedReminders.current = true;
+        // Subscribe to Folders - replaces storage.getFolders()
+        subFolders = client.models.Folder.observeQuery().subscribe({
+          next: ({ items }) => {
+            console.log('📁 Folders received from Amplify:', items);
+            // Map cloud paths to your folder state - no defaults!
+            const folderPaths = items.map(f => f.path || f.name);
+            console.log('📁 Processed folders:', folderPaths);
+            setFolders(folderPaths);
+          },
+          error: (err) => {
+            console.error('Error observing folders:', err);
+          }
+        });
+        
+      } catch (error) {
+        console.error('❌ Failed to initialize subscriptions - user not authenticated:', error);
+        setLoading(false);
       }
-    });
-  }, [loadData, addToast]);
+    };
 
-  // Unified Filter Logic
+    initializeSubscriptions();
+
+    return () => {
+      subNotes?.unsubscribe();
+      subFolders?.unsubscribe();
+    };
+  }, []); // Empty dependency - no user check needed since auth is handled by Amplify
+
   useEffect(() => {
-    let result = allNotes;
-
-    // 1. Search Query (Highest Priority)
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase();
-      result = result.filter(note => {
-        const titleMatch = note.title.toLowerCase().includes(q);
-        const contentText = getTextFromContent(note.content).toLowerCase();
-        const contentMatch = contentText.includes(q);
-        return titleMatch || contentMatch;
-      });
-    } 
-    // 2. Folder/Section Filters (only if no search)
-    else if (activeFilter === 'recent') {
-      result = [...result].sort((a,b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()).slice(0, 15);
-    } else if (activeFilter) {
-      // Logic for filtering by folder AND its subfolders
-      // e.g. "Work" should show notes in "Work" AND "Work/Projects"
-      // Wait, user requirement says: "also in the main folder on the right side it will show subfolders"
-      // Usually notes in subfolders are NOT shown in parent unless user explicitly asks.
-      // Strict matching is safer for "organizing".
-      // Let's do strict matching for now, OR startsWith check if we want to include descendants.
-      // Given the dashboard shows subfolders separately, strict matching for "Notes in this specific folder" is cleaner.
-      result = result.filter(n => n.folder === activeFilter);
-    }
-
-    setFilteredNotes(result);
-  }, [searchQuery, activeFilter, allNotes]);
-
-  const handleCreateNote = async () => {
-    const folderToUse = (activeFilter && activeFilter !== 'recent') ? activeFilter : 'General';
-    const newNote = await storageService.createNote(folderToUse);
-    await loadData();
-    navigate(`/notes/${newNote.id}`);
-    if (window.innerWidth < 768) setSidebarOpen(false);
-    if (searchQuery) setSearchQuery('');
-  };
-
-  const handleCreateFolder = async (name: string) => {
-    // If we have a parent folder, prepend it
-    const finalName = parentFolderForNewFolder ? `${parentFolderForNewFolder}/${name}` : name;
+    let filtered = notes;
     
-    const newFolders = await storageService.createFolder(finalName);
-    setFolders(newFolders);
-    setParentFolderForNewFolder(null); // Reset
-  };
+    if (activeFilter && activeFilter !== 'All Notes') {
+      if (activeFilter.includes('Search: ')) {
+        const searchTerm = activeFilter.replace('Search: ', '').toLowerCase();
+        filtered = notes.filter(note => 
+          note.title.toLowerCase().includes(searchTerm) ||
+          (note.content && JSON.stringify(note.content).toLowerCase().includes(searchTerm))
+        );
+      } else {
+        filtered = notes.filter(note => note.folder === activeFilter);
+      }
+    }
+    
+    if (searchQuery.trim()) {
+      filtered = filtered.filter(note =>
+        note.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (note.content && JSON.stringify(note.content).toLowerCase().includes(searchQuery.toLowerCase()))
+      );
+    }
+    
+    setFilteredNotes(filtered);
+  }, [notes, activeFilter, searchQuery]);
 
   const handleSelectNote = (noteId: string) => {
-    navigate(`/notes/${noteId}`);
-    if (window.innerWidth < 768) setSidebarOpen(false);
+    navigate(`/note/${noteId}`);
   };
 
-  // Callback for creating subfolder from Dashboard
-  const handleRequestCreateSubfolder = (parentPath: string) => {
-    setParentFolderForNewFolder(parentPath);
-    setFolderModalOpen(true);
-  };
+  const handleCreateNote = async (eventOrFolder?: React.MouseEvent | string) => {
+    try {
+      // Check if first parameter is a React event, if so ignore it
+      let folderPath: string | undefined;
+      if (typeof eventOrFolder === 'string') {
+        folderPath = eventOrFolder;
+      } else {
+        // It's a React event or undefined, use current filter
+        folderPath = activeFilter || 'General';
+      }
+      
+      console.log('🚀 Creating note with folder:', folderPath);
+      
+      // 1. Create the note in the cloud
+      const { data: newNote, errors } = await client.models.Note.create({
+        title: 'New Note',
+        content: JSON.stringify({ type: 'doc', content: [] }),
+        folder: folderPath,
+        priority: 'none'
+      });
 
-  // Electron shortcuts integration
-  const handleGlobalSearch = useCallback(() => {
-    // Focus on search if sidebar is open, otherwise open sidebar and focus search
-    if (!isSidebarOpen) {
-      setSidebarOpen(true);
+      console.log('📝 Note creation result:', { newNote, errors });
+
+      if (errors) {
+        console.error("Amplify Create Error:", errors);
+        return;
+      }
+
+      // 2. Navigate immediately using the new ID
+      if (newNote) {
+        console.log('🎯 Navigating to note:', newNote.id);
+        navigate(`/note/${newNote.id}`);
+      }
+    } catch (err) {
+      console.error("Failed to create note in Amplify:", err);
     }
-    // Navigate to main dashboard for search
-    navigate('/');
-    // The search input will be focused by the Sidebar component
-  }, [isSidebarOpen, navigate]);
+  };
 
-  const handleGlobalNewNote = useCallback(() => {
-    handleCreateNote();
-  }, [handleCreateNote]);
+  const handleCreateFolder = async (folderName: string) => {
+    try {
+      // Create the folder in the cloud with proper error handling
+      const { data: newFolder, errors } = await client.models.Folder.create({
+        name: folderName,
+        path: folderName
+      });
 
-  // Register Electron shortcuts
-  useElectronShortcuts(handleGlobalSearch, handleGlobalNewNote);
+      if (errors) {
+        console.error("Amplify Folder Create Error:", errors);
+        return;
+      }
+
+      if (newFolder) {
+        setShowFolderModal(false);
+        // observeQuery will automatically update the folders list
+      }
+    } catch (err) {
+      console.error('Failed to create folder in Amplify:', err);
+    }
+  };
+
+  const handleDeleteNote = async (noteId: string) => {
+    try {
+      const { errors } = await client.models.Note.delete({ id: noteId });
+      
+      if (errors) {
+        console.error("Amplify Delete Note Error:", errors);
+      }
+      // observeQuery will automatically update the notes list
+    } catch (err) {
+      console.error('Failed to delete note:', err);
+    }
+  };
+
+  const handleUpdateNote = async (noteId: string, updates: Partial<{color: string | null}>) => {
+    try {
+      console.log('🔄 Updating note in Amplify:', { noteId, updates });
+      
+      const { data, errors } = await client.models.Note.update({ 
+        id: noteId,
+        ...updates
+      });
+      
+      if (errors) {
+        console.error("❌ Amplify Update Note Error:", errors);
+        return false;
+      }
+      
+      if (data) {
+        console.log('✅ Note updated successfully:', data);
+        return true;
+      }
+      
+      // observeQuery will automatically update the notes list
+    } catch (err) {
+      console.error('❌ Failed to update note:', err);
+      return false;
+    }
+  };
 
   if (loading) {
-    return <div className="h-screen w-full flex items-center justify-center bg-bg text-fg font-mono">Loading_System...</div>;
+    return (
+      <div className="flex h-screen items-center justify-center bg-[#1a1a1a] text-white">
+        <div className="text-lg">Loading...</div>
+      </div>
+    );
   }
 
   return (
-    <div className="flex h-screen w-full overflow-hidden bg-bg text-fg font-mono transition-colors duration-300 flex-col">
-      <TitleBar />
+    <div className={`flex h-screen w-full overflow-hidden font-mono flex-col ${currentTheme === 'dark' ? 'bg-[#1a1a1a] text-white' : 'bg-gray-50 text-black'}`}>
+      {isElectron && <TitleBar />}
       <div className="flex flex-1 overflow-hidden">
-        <div 
-          className={`
-            fixed md:relative inset-y-0 left-0 z-30 
-            w-64 transform transition-transform duration-300 ease-in-out
-            ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'}
-            ${window.innerWidth < 768 ? 'shadow-2xl' : ''}
-            md:translate-x-0 md:w-64 md:flex-shrink-0
-            ${!isSidebarOpen && 'md:hidden'} 
-          `}
-        >
-          <Sidebar 
+        {/* Sidebar */}
+        <div className={`w-64 flex-shrink-0 ${!isSidebarOpen ? 'hidden' : ''}`}>
+          <Sidebar
             notes={filteredNotes}
             folders={folders}
-            currentNoteId={id} 
+            currentNoteId={id}
             activeFilter={activeFilter}
             searchQuery={searchQuery}
             onSearch={setSearchQuery}
             onSelectNote={handleSelectNote}
             onCreateNote={handleCreateNote}
             onSelectFilter={setActiveFilter}
-            onAddFolder={() => {
-              setParentFolderForNewFolder(null);
-              setFolderModalOpen(true);
+            onAddFolder={() => setShowFolderModal(true)}
+            onRenameFolder={async (oldName: string, newName: string) => {
+              try {
+                // Find the existing folder and update it
+                const { data: folders } = await client.models.Folder.list({
+                  filter: { name: { eq: oldName } }
+                });
+                
+                if (folders && folders.length > 0) {
+                  await client.models.Folder.update({
+                    id: folders[0].id,
+                    name: newName,
+                    path: newName
+                  });
+                  
+                  // Update active filter if it matches
+                  if (activeFilter === oldName) {
+                    setActiveFilter(newName);
+                  }
+                }
+              } catch (error) {
+                console.error('Failed to rename folder:', error);
+              }
             }}
-            onOpenSettings={() => setSettingsOpen(true)}
+            onCreateSubfolder={async (parentFolder: string, subfolderName: string) => {
+              try {
+                const subfolderPath = `${parentFolder}/${subfolderName}`;
+                await client.models.Folder.create({
+                  name: subfolderName,
+                  path: subfolderPath,
+                  parentPath: parentFolder
+                });
+              } catch (error) {
+                console.error('Failed to create subfolder:', error);
+              }
+            }}
+            onOpenSettings={() => setShowSettingsModal(true)}
+            onSignOut={() => console.log('Sign out')}
+            onDeleteFolder={async (folderPath: string) => {
+              try {
+                // Find and delete the folder
+                const { data: folders } = await client.models.Folder.list({
+                  filter: { path: { eq: folderPath } }
+                });
+                
+                if (folders && folders.length > 0) {
+                  await client.models.Folder.delete({ id: folders[0].id });
+                  
+                  // Clear filter if we deleted the active folder
+                  if (activeFilter === folderPath || activeFilter?.startsWith(folderPath + '/')) {
+                    setActiveFilter(null);
+                    navigate('/');
+                  }
+                }
+              } catch (error) {
+                console.error('Failed to delete folder:', error);
+              }
+            }}
+            theme={currentTheme}
           />
         </div>
 
-        {isSidebarOpen && window.innerWidth < 768 && (
-           <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-20" onClick={() => setSidebarOpen(false)} />
-        )}
-
-      <div className="flex-1 flex flex-col h-full w-full relative">
-        <Routes>
-          <Route path="/notes/:id" element={
-            <NoteView 
-              key={id /* KEY ADDITION FIXES STATE PERSISTENCE BUG */}
-              notes={allNotes} 
-              refreshNotes={loadData} 
-              toggleSidebar={() => setSidebarOpen(!isSidebarOpen)}
-              isSidebarOpen={isSidebarOpen}
+        {/* Main Content */}
+        <div className="flex-1 flex flex-col overflow-hidden">
+          <Routes>
+            <Route
+              path="/"
+              element={
+                <Dashboard
+                  notes={filteredNotes}
+                  folders={folders}
+                  onSelectNote={handleSelectNote}
+                  onCreateNote={handleCreateNote}
+                  onDeleteNote={handleDeleteNote}
+                  onUpdateNote={handleUpdateNote}
+                  onSelectSubfolder={(folder) => setActiveFilter(folder)}
+                  filterName={activeFilter}
+                  toggleSidebar={() => setSidebarOpen(!isSidebarOpen)}
+                  isSidebarOpen={isSidebarOpen}
+                  username={currentUsername}
+                  theme={currentTheme}
+                />
+              }
             />
-          } />
-          <Route path="/" element={
-            <div className="flex-1 flex flex-col relative h-full">
-               {!isSidebarOpen && (
-                 <div className="absolute top-4 left-4 z-20">
-                    <button onClick={() => setSidebarOpen(true)} className="p-2 bg-bg border border-border shadow-sm rounded text-muted-fg hover:text-fg">
-                       <Menu size={20} />
-                    </button>
-                 </div>
-               )}
-               <Dashboard 
-                 notes={filteredNotes} 
-                 filterName={searchQuery ? `Search: "${searchQuery}"` : (activeFilter || 'All Notes')}
-                 folders={folders} /* PASS ALL FOLDERS TO FIND SUBFOLDERS */
-                 onCreateNote={handleCreateNote} 
-                 onCreateSubfolder={handleRequestCreateSubfolder}
-                 onSelectSubfolder={(path) => setActiveFilter(path)}
-               />
-            </div>
-          } />
-        </Routes>
-      </div>
+            <Route
+              path="/note/:id"
+              element={
+                <NoteEditor
+                  notes={notes}
+                  refreshNotes={() => {}} // No longer needed - observeQuery handles updates
+                  toggleSidebar={() => setSidebarOpen(!isSidebarOpen)}
+                  isSidebarOpen={isSidebarOpen}
+                  theme={currentTheme}
+                />
+              }
+            />
+          </Routes>
+        </div>
       </div>
       
-      <SettingsModal 
-        isOpen={isSettingsOpen} 
-        onClose={() => setSettingsOpen(false)} 
-        theme={theme}
-        toggleTheme={toggleTheme}
+      {/* Modals */}
+      <FolderModal
+        isOpen={showFolderModal}
+        onClose={() => setShowFolderModal(false)}
+        onConfirm={handleCreateFolder}
       />
       
-      <CreateFolderModal 
-        isOpen={isFolderModalOpen}
-        onClose={() => {
-          setFolderModalOpen(false);
-          setParentFolderForNewFolder(null);
-        }}
-        onCreate={handleCreateFolder}
-        parentFolder={parentFolderForNewFolder}
+      <SettingsModal
+        isOpen={showSettingsModal}
+        onClose={() => setShowSettingsModal(false)}
+        currentUsername={currentUsername}
+        onUsernameChange={setCurrentUsername}
+        currentTheme={currentTheme}
+        onThemeChange={setCurrentTheme}
       />
     </div>
   );
-}; // Ensure AppContent function closes here
+};
 
-export default function App() {
+const App: React.FC = () => {
   return (
     <Router>
-      <ToastProvider>
-        <AppContent />
-      </ToastProvider>
+      <AppContent />
     </Router>
   );
-}
+};
+
+export default App;

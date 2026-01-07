@@ -10,7 +10,7 @@ const generateId = () => Math.random().toString(36).substring(2, 9) + Date.now()
 // Helper to simulate network latency
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-class StorageService {
+export class StorageService {
   private getNotesFromStorage(): Note[] {
     const raw = localStorage.getItem(STORAGE_KEY_NOTES);
     const notes = raw ? JSON.parse(raw) : [];
@@ -37,8 +37,8 @@ class StorageService {
 
   private getFoldersFromStorage(): string[] {
     const raw = localStorage.getItem(STORAGE_KEY_FOLDERS);
-    // Default folders if none exist
-    return raw ? JSON.parse(raw) : ['Personal', 'Work', 'Ideas'];
+    // Return empty array if no folders exist - NO DEFAULTS
+    return raw ? JSON.parse(raw) : [];
   }
 
   private saveFoldersToStorage(folders: string[]) {
@@ -113,15 +113,68 @@ class StorageService {
   }
 
   async createFolder(name: string): Promise<string[]> {
-    await delay(200);
+    await delay(100);
     const folders = this.getFoldersFromStorage();
     if (!folders.includes(name)) {
       folders.push(name);
       this.saveFoldersToStorage(folders);
     }
+    return this.getFoldersFromStorage();
+  }
+  async deleteFolder(folderPath: string): Promise<string[]> {
+    await delay(100);
+    const folders = this.getFoldersFromStorage();
+    // Remove the folder and any subfolders
+    const updatedFolders = folders.filter(f => f !== folderPath && !f.startsWith(folderPath + '/'));
+    this.saveFoldersToStorage(updatedFolders);
+    
+    // Also update any notes that were in the deleted folder
+    const notes = this.getNotesFromStorage();
+    const updatedNotes = notes.map(note => {
+      if (note.folder === folderPath || note.folder?.startsWith(folderPath + '/')) {
+        return { ...note, folder: 'General' };
+      }
+      return note;
+    });
+    this.saveNotesToStorage(updatedNotes);
+    
+    return updatedFolders;
+  }  async createSubfolder(parentPath: string, subfolderName: string): Promise<string[]> {
+    await delay(200);
+    const folders = this.getFoldersFromStorage();
+    const newFolderPath = `${parentPath}/${subfolderName}`;
+    if (!folders.includes(newFolderPath)) {
+      folders.push(newFolderPath);
+      this.saveFoldersToStorage(folders);
+    }
+    return folders;
+  }  async renameFolder(oldName: string, newName: string): Promise<string[]> {
+    await delay(200);
+    const folders = this.getFoldersFromStorage();
+    const notes = this.getNotesFromStorage();
+    
+    // Update folder name in folders array
+    const folderIndex = folders.findIndex(f => f === oldName);
+    if (folderIndex !== -1) {
+      folders[folderIndex] = newName;
+      this.saveFoldersToStorage(folders);
+    }
+    
+    // Update notes that use this folder
+    const updatedNotes = notes.map(note => {
+      if (note.folder === oldName) {
+        return { ...note, folder: newName };
+      }
+      // Handle nested folder paths
+      if (note.folder && note.folder.startsWith(oldName + '/')) {
+        return { ...note, folder: note.folder.replace(oldName + '/', newName + '/') };
+      }
+      return note;
+    });
+    
+    this.saveNotesToStorage(updatedNotes);
     return folders;
   }
-
   // Revision History Logic
   private async createRevision(noteId: string, content: any) {
     const revisions = this.getRevisionsFromStorage();
@@ -153,4 +206,4 @@ class StorageService {
   }
 }
 
-export const storageService = new StorageService();
+export const storage = new StorageService();

@@ -15,7 +15,7 @@ const TitleBar: React.FC = () => {
   }
 
   return (
-    <div className="flex items-center justify-between h-10 bg-gray-900 border-b border-gray-700 select-none" style={{WebkitAppRegion: 'drag'}}>
+    <div className="flex items-center justify-between h-10 bg-gray-900 border-b border-gray-700 select-none" style={{WebkitAppRegion: 'drag'} as React.CSSProperties}>
       {/* App Title */}
       <div className="flex items-center px-4">
         <div className="w-4 h-4 rounded bg-gradient-to-r from-purple-500 to-pink-500 mr-2" />
@@ -23,7 +23,7 @@ const TitleBar: React.FC = () => {
       </div>
 
       {/* Window Controls */}
-      <div className="flex" style={{WebkitAppRegion: 'no-drag'}}>
+      <div className="flex" style={{WebkitAppRegion: 'no-drag'} as React.CSSProperties}>
         <button
           onClick={minimizeWindow}
           className="flex items-center justify-center w-12 h-10 text-gray-400 hover:text-white hover:bg-gray-700 transition-colors"

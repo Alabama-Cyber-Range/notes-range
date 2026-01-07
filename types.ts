@@ -5,11 +5,14 @@ export interface Note {
   id: string;
   title: string;
   content: any; // JSON content from Tiptap
-  folder: string | null;
-  priority: Priority;
-  reminderAt: string | null; // ISO Date string
+  folder?: string | null;
+  priority?: Priority;
+  color?: string; // Hex color for note categorization
+  reminderAt?: string | null; // ISO Date string
   createdAt: string; // ISO Date string
   updatedAt: string; // ISO Date string
+  type?: 'note' | 'folder';
+  parentId?: string;
 }
 
 export interface Revision {
@@ -20,7 +23,7 @@ export interface Revision {
 }
 
 // Helper types for the application state
-export type NotePreview = Pick<Note, 'id' | 'title' | 'updatedAt' | 'folder' | 'priority' | 'reminderAt'>;
+export type NotePreview = Pick<Note, 'id' | 'title' | 'updatedAt' | 'folder' | 'priority' | 'color' | 'reminderAt'>;
 
 export interface EditorProps {
   initialContent?: any;
